@@ -246,10 +246,8 @@ def pick(stage):
     return random.choices(("left", "right"), weights=CHAM_WEIGHTS)[0]
   return random.choices(("scissors", "rock", "paper"), weights=RPS_WEIGHTS)[0]
 
-
-# ---------- mediapipe 1.x HandLandmarker 래퍼 ----------
+# 손 트래킹
 class HandTracker:
-  """mediapipe 1.x Tasks API(HandLandmarker) 래퍼"""
 
   def __init__(self, num_hands=1):
     self._ensure_model()
