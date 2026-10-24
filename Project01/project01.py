@@ -176,12 +176,9 @@ class Game:
 
 # 손 인식
 def classify_hand(pts):
-  # 랜드마크 개수 및 유효성 검증 후 분류
   if pts is None or len(pts) < 21:
     return None
   d = lambda a, b: float(np.linalg.norm(pts[a] - pts[b]))
-  # 손목(0번)에서 각 손가락 끝(8, 12, 16, 20번)까지의 거리가
-  # 중간 마디(6, 10, 14, 18번)까지의 거리보다 1.1배 이상 멀면 '펴진 상태'로 판단
   try:
     ext = [
         d(0, t) > 1.1 * d(0, p)
@@ -204,7 +201,7 @@ def hand_side(pts):
   if pts is None or len(pts) < 21:
     return None
   try:
-    cx = float(pts[[0, 5, 9, 13, 17]].mean(axis=0)[0])  # 손바닥 중심 x좌표
+    cx = float(pts[[0, 5, 9, 13, 17]].mean(axis=0)[0])
   except Exception:
     return None
   if abs(cx - W / 2) < DEAD:
@@ -219,7 +216,7 @@ def sample_of(stage, pts):
   return hand_side(pts) if stage == 2 else classify_hand(pts)
 
 
-# cpu가 낼 값 가져오기
+# CPU가 낼 값 가져오기
 def pick(stage):
   if stage == 2:
     return random.choices(("left", "right"), weights=CHAM_WEIGHTS)[0]
@@ -233,14 +230,12 @@ def draw_ui(frame, g, phase, t, result, live_pose, pts):
 
   if st == 2 and phase != "over":
     ov = frame.copy()
-    if side == "left":  # 왼쪽 빛
+    if side == "left":
       cv2.rectangle(ov, (0, 0), (W // 2, H), (255, 170, 60), -1)
-    elif side == "right":  # 오른쪽 빛
+    elif side == "right":
       cv2.rectangle(ov, (W // 2, 0), (W, H), (60, 130, 255), -1)
-    cv2.addWeighted(ov, 0.22, frame, 0.78, 0, frame)  # 투명도(22%) 합성
-    cv2.line(
-        frame, (W // 2, 0), (W // 2, H), WHITE, 2, cv2.LINE_AA
-    )  # 화면 정중앙 세로 기준선
+    cv2.addWeighted(ov, 0.22, frame, 0.78, 0, frame)
+    cv2.line(frame, (W // 2, 0), (W // 2, H), WHITE, 2, cv2.LINE_AA)
     for dx in (-DEAD, DEAD):
       cv2.line(
           frame,
@@ -249,7 +244,7 @@ def draw_ui(frame, g, phase, t, result, live_pose, pts):
           (200, 200, 200),
           1,
           cv2.LINE_AA,
-      )  # 무효 구간 경계선
+      )
     T(S("왼쪽", "LEFT"), W // 4, H - 110, 44, (255, 200, 120), "mm")
     T(S("오른쪽", "RIGHT"), 3 * W // 4, H - 110, 44, (120, 160, 255), "mm")
 
@@ -261,7 +256,7 @@ def draw_ui(frame, g, phase, t, result, live_pose, pts):
       S("참참참", "CHAMCHAMCHAM"),
   ]
   for i, nm in enumerate(names):
-    x0 = 14 + i * 210  # 각 박스 시작 좌표
+    x0 = 14 + i * 210
     if i < done:
       border, tcol = OWNER_COL[owner], OWNER_COL[owner]
     elif i == st:
@@ -307,7 +302,6 @@ def draw_ui(frame, g, phase, t, result, live_pose, pts):
     )
   T(hint, 14, 104, 20, GRAY)
 
-  # 우측 상단 컴퓨터가 낸 패 그리기
   px0, py0, px1, py1 = W - 230, 14, W - 14, 170
   cv2.rectangle(frame, (px0, py0), (px1, py1), (35, 35, 35), -1)
   cv2.rectangle(frame, (px0, py0), (px1, py1), CPU_COL, 2)
@@ -388,7 +382,6 @@ def draw_ui(frame, g, phase, t, result, live_pose, pts):
 
 
 def main():
-  # Jetson GStreamer 파이프라인 적용
   pipeline = (
       "v4l2src device=/dev/video0 ! "
       "video/x-raw,format=YUY2,width=640,height=480,framerate=30/1 ! "
@@ -413,121 +406,116 @@ def main():
   cpu_choice, samples, result = None, [], None
   live = deque(maxlen=5)
 
-  hands = mp_hands.Hands(
+  # 미디어파이프 최신 버전(1.x / 0.10+) 권장 컨텍스트 관리자 적용
+  with mp_hands.Hands(
       max_num_hands=1,
       model_complexity=0,
       min_detection_confidence=0.6,
       min_tracking_confidence=0.6,
-  )
+  ) as hands:
+    try:
+      while True:
+        ok, frame = cap.read()
+        if not ok:
+          print("프레임을 읽을 수 없습니다.")
+          break
 
-  try:
-    while True:
-      ok, frame = cap.read()
-      if not ok:
-        print("프레임을 읽을 수 없습니다.")
-        break
-      # GStreamer로 읽은 프레임(640x480)을 좌우반전 후 게임 해상도(W, H = 960, 540)에 맞게 리사이즈
-      frame = cv2.resize(cv2.flip(frame, 1), (W, H))
+        frame = cv2.resize(cv2.flip(frame, 1), (W, H))
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        rgb = np.ascontiguousarray(rgb)
 
-      rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-      rgb = np.ascontiguousarray(rgb)
-
-      try:
-        res = hands.process(rgb)
-      except Exception as e:
-        print(f"[MediaPipe process error] {e}")
-        res = None
-
-      now = time.time()
-
-      pts = None
-      if res is not None and getattr(res, "multi_hand_landmarks", None):
-        lms = res.multi_hand_landmarks[0]
         try:
-          pts = np.array(
-              [[p.x * W, p.y * H] for p in lms.landmark],
-              dtype=np.float32,
-          )
+          res = hands.process(rgb)
         except Exception as e:
-          print(f"[landmark parse error] {e}")
-          pts = None
+          print(f"[MediaPipe process error] {e}")
+          res = None
 
-        if pts is not None and len(pts) >= 21:
+        now = time.time()
+        pts = None
+
+        if res is not None and getattr(res, "multi_hand_landmarks", None):
+          lms = res.multi_hand_landmarks[0]
           try:
-            mp_draw.draw_landmarks(
-                frame,
-                lms,
-                mp_hands.HAND_CONNECTIONS,
-                mp_draw.DrawingSpec(
-                    color=(255, 255, 255), thickness=1, circle_radius=2
-                ),
-                mp_draw.DrawingSpec(color=(200, 200, 200), thickness=1),
+            pts = np.array(
+                [[p.x * W, p.y * H] for p in lms.landmark],
+                dtype=np.float32,
             )
           except Exception as e:
-            print(f"[draw_landmarks error] {e}")
+            print(f"[landmark parse error] {e}")
+            pts = None
 
-      live.append(classify_hand(pts) if pts is not None else None)
-      vals = [v for v in live if v]
-      live_pose = Counter(vals).most_common(1)[0][0] if vals else None
-      seen_since = (
-          (seen_since if seen_since is not None else now)
-          if pts is not None
-          else None
-      )
+          if pts is not None and len(pts) >= 21:
+            try:
+              mp_draw.draw_landmarks(
+                  frame,
+                  lms,
+                  mp_hands.HAND_CONNECTIONS,
+                  mp_draw.DrawingSpec(
+                      color=(255, 255, 255), thickness=1, circle_radius=2
+                  ),
+                  mp_draw.DrawingSpec(color=(200, 200, 200), thickness=1),
+              )
+            except Exception as e:
+              print(f"[draw_landmarks error] {e}")
 
-      if phase == "idle":
-        if seen_since is not None and now - seen_since >= READY_HOLD:
-          cpu_choice = pick(game.stage)
-          samples, t0, phase = [], now, "count"
+        live.append(classify_hand(pts) if pts is not None else None)
+        vals = [v for v in live if v]
+        live_pose = Counter(vals).most_common(1)[0][0] if vals else None
+        seen_since = (
+            (seen_since if seen_since is not None else now)
+            if pts is not None
+            else None
+        )
 
-      elif phase == "count":
-        t = now - t0
-        if CAP0 <= t < CAP1:
-          samples.append(sample_of(game.stage, pts))
-        if t >= CAP1:
-          valid = [s for s in samples if s]
-          stage_now = game.stage
-          if len(valid) < MIN_SAMPLES:
-            result = (
-                "invalid",
-                S("인식 실패 — 다시!", "No input - again!"),
-                None,
-                cpu_choice,
-                stage_now,
-            )
-          else:
-            p = Counter(valid).most_common(1)[0][0]
-            kind, text = game.resolve(p, cpu_choice)
-            result = (kind, text, p, cpu_choice, stage_now)
-          phase = "over" if game.over else "result"
-          t_result = now
+        if phase == "idle":
+          if seen_since is not None and now - seen_since >= READY_HOLD:
+            cpu_choice = pick(game.stage)
+            samples, t0, phase = [], now, "count"
 
-      elif phase == "result":
-        if now - t_result >= RESULT_T:
-          phase, seen_since = "idle", None
+        elif phase == "count":
+          t = now - t0
+          if CAP0 <= t < CAP1:
+            samples.append(sample_of(game.stage, pts))
+          if t >= CAP1:
+            valid = [s for s in samples if s]
+            stage_now = game.stage
+            if len(valid) < MIN_SAMPLES:
+              result = (
+                  "invalid",
+                  S("인식 실패 — 다시!", "No input - again!"),
+                  None,
+                  cpu_choice,
+                  stage_now,
+              )
+            else:
+              p = Counter(valid).most_common(1)[0][0]
+              kind, text = game.resolve(p, cpu_choice)
+              result = (kind, text, p, cpu_choice, stage_now)
+            phase = "over" if game.over else "result"
+            t_result = now
 
-      t = now - t0 if phase == "count" else 0.0
-      try:
-        out = draw_ui(frame, game, phase, t, result, live_pose, pts)
-      except Exception as e:
-        print(f"[draw_ui error] {e}")
-        out = frame
-      cv2.imshow("RPS -> Mukjjippa -> Chamchamcham", out)
+        elif phase == "result":
+          if now - t_result >= RESULT_T:
+            phase, seen_since = "idle", None
 
-      k = cv2.waitKey(1) & 0xFF
-      if k == 27:
-        break
-      if k == ord("r") or (k == 32 and phase == "over"):
-        game.reset()
-        phase, result, seen_since = "idle", None, None
+        t = now - t0 if phase == "count" else 0.0
+        try:
+          out = draw_ui(frame, game, phase, t, result, live_pose, pts)
+        except Exception as e:
+          print(f"[draw_ui error] {e}")
+          out = frame
+        cv2.imshow("RPS -> Mukjjippa -> Chamchamcham", out)
 
-  finally:
-    try:
-      hands.close()
-    except Exception:
-      pass
-    cap.release()
-    cv2.destroyAllWindows()
+        k = cv2.waitKey(1) & 0xFF
+        if k == 27:
+          break
+        if k == ord("r") or (k == 32 and phase == "over"):
+          game.reset()
+          phase, result, seen_since = "idle", None, None
+
+    finally:
+      cap.release()
+      cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
