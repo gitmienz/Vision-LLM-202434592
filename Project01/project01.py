@@ -485,13 +485,15 @@ def draw_ui(frame, g, phase, t, result, live_pose, pts):
 def main():
   # Jetson GStreamer 파이프라인 적용
   pipeline = (
-      "v4l2src device=/dev/video0 ! "
-      "video/x-raw,format=YUY2,width=640,height=480,framerate=30/1 ! "
-      "videoconvert ! video/x-raw,format=BGR ! "
-      "queue leaky=downstream max-size-buffers=1 "
-      "max-size-bytes=0 max-size-time=0 ! "
-      "appsink drop=true max-buffers=1 sync=false"
-  )
+    "nvarguscamerasrc sensor-id=0 ! "
+    "video/x-raw(memory:NVMM), width=1280, height=720, framerate=30/1 ! "
+    "nvvidconv ! "
+    "video/x-raw, format=BGRx ! "
+    "videoconvert ! "
+    "video/x-raw, format=BGR ! "
+    "queue leaky=downstream max-size-buffers=1 ! "
+    "appsink drop=true max-buffers=1 sync=false"
+)
   cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
 
   if not cap.isOpened():
