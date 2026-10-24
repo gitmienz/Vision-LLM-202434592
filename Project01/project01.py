@@ -246,7 +246,7 @@ def pick(stage):
     return random.choices(("left", "right"), weights=CHAM_WEIGHTS)[0]
   return random.choices(("scissors", "rock", "paper"), weights=RPS_WEIGHTS)[0]
 
-# 손 트래킹
+
 class HandTracker:
 
   def __init__(self, num_hands=1):
@@ -270,8 +270,8 @@ class HandTracker:
     self.landmarker = mp.tasks.vision.HandLandmarker.create_from_options(opts)
     self.last_ts = 0
 
-  @staticmethod
-  def _ensure_model():
+
+  def _ensure_model(self):
     if os.path.exists(MODEL_PATH):
       return
     print("hand_landmarker.task 모델을 내려받는 중...")
