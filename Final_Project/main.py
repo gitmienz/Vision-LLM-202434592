@@ -1,50 +1,71 @@
 import time
 import cv2
-from yolo_detector import YOLODetector
-from ocr_stt import AudioOCRHandler
-from llm_handler import LLMHandler
 
-YOLO_MODEL_PATH = "src/models/YOLO/yolo11n.pt"  
-GEMMA_MODEL_PATH = "src/models/Gemma4/google_gemma-4-E2B-it-Q4_K_M.gguf"
-
-# GStreamer 카메라 파이프라인
+# 1. GStreamer MJPG 파이프라인 (USB 대역폭 충돌 방지 및 최적화)
 GSTREAMER_PIPELINE = (
     "v4l2src device=/dev/video0 ! "
-    "video/x-raw,format=YUY2,width=640,height=480,framerate=30/1 ! "
-    "videoconvert ! video/x-raw,format=BGR ! "
+    "image/jpeg,width=640,height=480,framerate=30/1 ! "
+    "jpegdec ! videoconvert ! video/x-raw,format=BGR ! "
     "queue leaky=downstream max-size-buffers=1 "
     "max-size-bytes=0 max-size-time=0 ! "
     "appsink drop=true max-buffers=1 sync=false"
 )
 
 def main():
-    print("NVIDIA Jetson 시스템 초기화 중...")
-    yolo = YOLODetector(YOLO_MODEL_PATH)
+
+    print("1. 카메라 스트림 선점 중 (GStreamer)...")
+
     
-    # whisper.cpp 전용 AudioOCRHandler 생성
+    #  AI 모델(CUDA)을 로드하기 전에 카메라를 가장 먼저 오픈합니다.
+    cap = cv2.VideoCapture(GSTREAMER_PIPELINE, cv2.CAP_GSTREAMER)
+    
+    if not cap.isOpened():
+        print("[경고] GStreamer 오픈 실패. V4L2 백엔드로 전환합니다.")
+        cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+    if not cap.isOpened():
+        print("[에러] 카메라 오픈에 실패했습니다. /dev/video0 권한 및 점유 상태를 확인하세요.")
+        return
+
+    # 첫 프레임 읽기 테스트로 카메라 버퍼 확보
+    ret, frame = cap.read()
+    if not ret:
+        print("[에러] 카메라 프레임 읽기 실패")
+        cap.release()
+        return
+    print("[성공] 카메라 정상 연결 완료!\n")
+
+    print("==========================================")
+    print("2. AI 가속 모듈 로딩 중 (YOLO, Whisper, Gemma)...")
+    print("==========================================")
+    
+    # 카메라가 안정적으로 열린 후 모듈들을 지연 로드(Lazy Import)합니다.
+    from yolo_detector import YOLODetector
+    from ocr_stt import AudioOCRHandler
+    from llm_handler import LLMHandler
+
+    YOLO_MODEL_PATH = "src/models/YOLO/yolo11n.pt"  
+    GEMMA_MODEL_PATH = "src/models/Gemma4/google_gemma-4-E2B-it-Q4_K_M.gguf"
+
+    yolo = YOLODetector(YOLO_MODEL_PATH)
     audio_ocr = AudioOCRHandler(
         audio_file="src/audio/input.wav",
         record_seconds=5,
         mic_device="plughw:3,0",
-        whisper_path="whisper.cpp/build-cpu/bin/whisper-cli",  # 필요시 build/bin/whisper-cli 로 변경
+        whisper_path="whisper.cpp/build-cpu/bin/whisper-cli",
         whisper_model="whisper.cpp/models/ggml-base.bin",
     )
-    
     llm = LLMHandler(GEMMA_MODEL_PATH)
-    print("모든 시스템 초기화 완료!\n")
-
-    cap = cv2.VideoCapture(GSTREAMER_PIPELINE, cv2.CAP_GSTREAMER)
-
-    if not cap.isOpened():
-        print("GStreamer 카메라를 열 수 없습니다. 디바이스 경로를 확인해 주세요.")
-        return
+    print("모든 AI 모델 로드 완료!\n")
 
     active_target_box = None
     guide_speech_text = ""
     target_expire_time = 0
 
     print("==========================================")
-    print("키오스크 AI 가이드 시스템 (whisper.cpp CLI)")
+    print("키오스크 AI 가이드 시스템 가동 중")
     print("- 's' 키: 음성 질문 시작")
     print("- 'q' 키: 종료")
     print("==========================================\n")
