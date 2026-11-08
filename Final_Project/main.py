@@ -46,7 +46,7 @@ def main():
     audio_ocr = AudioOCRHandler(
         audio_file="src/audio/input.wav",
         record_seconds=5,
-        mic_device="plughw:3,0",
+        mic_device="plughw:2,0",
         whisper_path="whisper.cpp/build-cpu/bin/whisper-cli",
         whisper_model="whisper.cpp/models/ggml-base.bin",
     )
