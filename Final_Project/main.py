@@ -1,13 +1,13 @@
 import time
 import cv2
-from yolo import YOLODetector
-from ocr_det import AudioOCRHandler
+from yolo_detector import YOLODetector
+from ocr_stt import AudioOCRHandler
 from llm_handler import LLMHandler
 
 YOLO_MODEL_PATH = "src/models/YOLO/yolo11n.pt"  
 GEMMA_MODEL_PATH = "src/models/Gemma4/google_gemma-4-E2B-it-Q4_K_M.gguf"
 
-# GStreamer 카메라 파이프라인 설정
+# GStreamer 카메라 파이프라인
 GSTREAMER_PIPELINE = (
     "v4l2src device=/dev/video0 ! "
     "video/x-raw,format=YUY2,width=640,height=480,framerate=30/1 ! "
@@ -18,17 +18,25 @@ GSTREAMER_PIPELINE = (
 )
 
 def main():
-    print("NVIDIA Jetson 가속 모듈 로딩 중...")
+    print("NVIDIA Jetson 시스템 초기화 중...")
     yolo = YOLODetector(YOLO_MODEL_PATH)
-    audio_ocr = AudioOCRHandler()
+    
+    # whisper.cpp 전용 AudioOCRHandler 생성
+    audio_ocr = AudioOCRHandler(
+        audio_file="src/audio/input.wav",
+        record_seconds=5,
+        mic_device="plughw:3,0",
+        whisper_path="whisper.cpp/build-cpu/bin/whisper-cli",  # 필요시 build/bin/whisper-cli 로 변경
+        whisper_model="whisper.cpp/models/ggml-base.bin",
+    )
+    
     llm = LLMHandler(GEMMA_MODEL_PATH)
-    print("모든 모듈 CUDA GPU 로드 완료!\n")
+    print("모든 시스템 초기화 완료!\n")
 
-    # GStreamer 파이프라인으로 카메라 객체 생성
     cap = cv2.VideoCapture(GSTREAMER_PIPELINE, cv2.CAP_GSTREAMER)
 
     if not cap.isOpened():
-        print("GStreamer 카메라를 열 수 없습니다. /dev/video0 장치 권한 및 파이프라인을 확인해 주세요.")
+        print("GStreamer 카메라를 열 수 없습니다. 디바이스 경로를 확인해 주세요.")
         return
 
     active_target_box = None
@@ -36,7 +44,7 @@ def main():
     target_expire_time = 0
 
     print("==========================================")
-    print("키오스크 AI 가이드 시스템 (Jetson GStreamer)")
+    print("키오스크 AI 가이드 시스템 (whisper.cpp CLI)")
     print("- 's' 키: 음성 질문 시작")
     print("- 'q' 키: 종료")
     print("==========================================\n")
@@ -55,7 +63,6 @@ def main():
             if user_speech:
                 boxes = yolo.detect(frame)
                 
-                # YOLO 박스 영역에서 OCR 텍스트 추출 및 결합
                 for box in boxes:
                     x1, y1, x2, y2 = box["bbox"]
                     cropped = frame[max(0, y1):min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
