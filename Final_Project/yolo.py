@@ -3,12 +3,14 @@ from ultralytics import YOLO
 
 class YOLODetector:
     def __init__(self, model_path="src/models/YOLO/yolo11n.pt", conf_thresh=0.25, iou_thresh=0.5):
+        # 모델 로드 후 CUDA 메모리로 명시적 이관
         self.model = YOLO(model_path)
         self.model.to("cuda")
         self.conf_thresh = conf_thresh
         self.iou_thresh = iou_thresh
 
     def detect(self, frame):
+        """프레임에서 UI 바운딩 박스 및 위치 좌표 추출"""
         height, width, _ = frame.shape
         results = self.model.predict(
             source=frame,

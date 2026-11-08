@@ -3,10 +3,10 @@ from llama_cpp import Llama
 
 class LLMHandler:
     def __init__(self, model_path, n_ctx=1024):
-        # Jetson CUDA GPU 전층 오프로딩 (n_gpu_layers=-1)
+        # Jetson CUDA GPU 전층 오프로딩
         self.llm = Llama(
             model_path=model_path,
-            n_gpu_layers=-1,  # CUDA 가속 활성화
+            n_gpu_layers=-1,
             n_ctx=n_ctx,
             verbose=False,
         )
